@@ -1,4 +1,4 @@
-use eframe::egui;
+use eframe::egui::{self, Color32};
 use screenshots::Screen;
 use std::sync::mpsc;
 use std::thread;
@@ -82,8 +82,11 @@ impl eframe::App for QRScanner {
 
                 if let (Some(start), Some(end)) = (self.start_pos, self.end_pos) {
                     let rect = egui::Rect::from_two_pos(start, end);
-                    ui.painter()
-                        .rect_stroke(rect, 0.0, (1.0, egui::Color32::RED));
+                    ui.painter().rect_filled(
+                        rect,
+                        0.0,
+                        Color32::from_rgba_unmultiplied(255, 0, 0, 2),
+                    );
                 }
             }
 
