@@ -1,15 +1,20 @@
-use eframe::egui::{self, Color32};
+use eframe::egui::{self};
+use rdev::{listen, Button, Event, EventType};
 use screenshots::Screen;
-use std::sync::mpsc;
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
-
+#[derive(Debug)]
+struct Coordinates {
+    x: f32,
+    y: f32,
+}
 struct QRScanner {
     scanning: bool,
     result: String,
     tx: mpsc::Sender<(i32, i32, u32, u32)>,
     rx: mpsc::Receiver<Vec<u8>>,
-    start_pos: Option<egui::Pos2>,
-    end_pos: Option<egui::Pos2>,
+    start_pos: Option<Coordinates>,
+    end_pos: Option<Coordinates>,
 }
 
 impl Default for QRScanner {
@@ -39,6 +44,49 @@ impl Default for QRScanner {
         }
     }
 }
+impl QRScanner {
+    fn handle_event(&mut self, event: Event) {
+        match event.event_type {
+            EventType::MouseMove { x, y } => {
+                if !self.scanning {
+                    // Update start_pos only when not scanning
+                    self.start_pos = Some(Coordinates {
+                        x: x as f32,
+                        y: y as f32,
+                    });
+                } else {
+                    // Update end_pos when scanning (dragging)
+                    self.end_pos = Some(Coordinates {
+                        x: x as f32,
+                        y: y as f32,
+                    });
+                }
+                println!("{:?} {:?}", self.start_pos, self.end_pos);
+            }
+            EventType::ButtonPress(Button::Left) => {
+                if !self.scanning {
+                    self.scanning = true;
+                    // Use the current mouse position as both start and end initially
+                }
+            }
+            EventType::ButtonRelease(Button::Left) => {
+                if self.scanning {
+                    self.scanning = false;
+
+                    // Process the captured area
+                    if let (Some(start), Some(end)) = (&self.start_pos, &self.end_pos) {
+                        let width = (end.x - start.x).abs() as u32;
+                        let height = (end.y - start.y).abs() as u32;
+                        let (x, y) = (start.x.min(end.x) as i32, start.y.min(end.y) as i32);
+
+                        self.tx.send((x, y, width, height)).unwrap();
+                    }
+                }
+            }
+            _ => (),
+        }
+    }
+}
 
 impl eframe::App for QRScanner {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
@@ -51,43 +99,7 @@ impl eframe::App for QRScanner {
                     self.end_pos = None;
                 }
             } else {
-                ui.label("Click and drag to select area");
-                let pointer = ui.input(|i| i.pointer.clone());
-                if pointer.any_pressed() {
-                    self.start_pos = pointer.interact_pos();
-                    println!("Mouse pressed at: {:?}", self.start_pos);
-                }
-                if pointer.primary_down() {
-                    self.end_pos = pointer.interact_pos();
-                    println!("Mouse dragged to: {:?}", self.end_pos);
-                }
-                if pointer.any_released() {
-                    if let (Some(start), Some(end)) = (self.start_pos, self.end_pos) {
-                        let min_x = start.x.min(end.x);
-                        let min_y = start.y.min(end.y);
-                        let width = (start.x - end.x).abs() as u32;
-                        let height = (start.y - end.y).abs() as u32;
-                        println!(
-                            "Selection area: ({}, {}, {}, {})",
-                            min_x, min_y, width, height
-                        );
-                        let tx = self.tx.clone();
-                        thread::spawn(move || {
-                            tx.send((min_x as i32, min_y as i32, width, height))
-                                .unwrap();
-                        });
-                        self.scanning = false;
-                    }
-                }
-
-                if let (Some(start), Some(end)) = (self.start_pos, self.end_pos) {
-                    let rect = egui::Rect::from_two_pos(start, end);
-                    ui.painter().rect_filled(
-                        rect,
-                        0.0,
-                        Color32::from_rgba_unmultiplied(255, 0, 0, 2),
-                    );
-                }
+                ui.label("Drag to select area");
             }
 
             if let Ok(_image_data) = self.rx.try_recv() {
@@ -98,12 +110,29 @@ impl eframe::App for QRScanner {
             if !self.result.is_empty() {
                 ui.label(&self.result);
             }
+
+            // println!("{:?}", &self.end_pos);
         });
     }
 }
 
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions::default();
+    let qr_scanner = Arc::new(Mutex::new(QRScanner::default()));
+
+    let qr_scanner_clone = Arc::clone(&qr_scanner);
+    thread::spawn(move || {
+        let callback = move |event: Event| {
+            if let Ok(mut scanner) = qr_scanner_clone.lock() {
+                scanner.handle_event(event);
+            }
+        };
+
+        if let Err(error) = listen(callback) {
+            println!("Error: {:?}", error)
+        }
+    });
+
     eframe::run_native(
         "Qr Scanner",
         options,
