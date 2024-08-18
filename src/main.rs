@@ -1,8 +1,12 @@
 use eframe::egui::{self};
+use image;
 use rdev::{listen, Button, Event, EventType};
+use rqrr::PreparedImage;
 use screenshots::Screen;
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
+use webbrowser;
+
 #[derive(Debug)]
 struct Coordinates {
     x: f32,
@@ -21,16 +25,18 @@ struct QRScanner {
 impl Default for QRScanner {
     fn default() -> Self {
         let (tx1, rx1) = mpsc::channel();
-        let (tx2, rx2) = mpsc::channel();
+        let (_tx2, rx2) = mpsc::channel();
 
         // Spawn the background thread for screen capture
         thread::spawn(move || {
             let screen = Screen::from_point(0, 0).unwrap();
             loop {
                 if let Ok((x, y, width, height)) = rx1.recv() {
-                    let image = screen.capture_area(x, y, width, height).unwrap();
-                    // TODO: Process image and send result
-                    // tx2.send(image.to_vec()).unwrap();
+                    let imageresult = screen.capture_area(x, y, width, height).unwrap();
+                    println!("{:?}", imageresult);
+                    let imageresult = imageresult.to_vec();
+                    let decoded_data_resultant = decode_qr_code(imageresult);
+                    println!("{:?}", decoded_data_resultant.unwrap());
                 }
             }
         });
@@ -142,4 +148,20 @@ fn main() -> eframe::Result {
         options,
         Box::new(|_cc| Ok(Box::new(QRScanner::default()))),
     )
+}
+
+fn decode_qr_code(image: Vec<u8>) -> Option<String> {
+    let img = image::load_from_memory(&image).ok().unwrap().to_luma8();
+    let mut prepared_image = PreparedImage::prepare(img);
+
+    // Detect and decode QR codes
+    let grids = prepared_image.detect_grids();
+
+    let (_meta, content) = grids[0].decode().unwrap();
+    if !content.is_empty() {
+        webbrowser::open(&content).unwrap();
+        return Some(content);
+    } else {
+        None
+    }
 }
