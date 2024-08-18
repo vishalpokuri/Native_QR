@@ -10,6 +10,7 @@ struct Coordinates {
 }
 struct QRScanner {
     scanning: bool,
+    start: bool,
     result: String,
     tx: mpsc::Sender<(i32, i32, u32, u32)>,
     rx: mpsc::Receiver<Vec<u8>>,
@@ -28,13 +29,14 @@ impl Default for QRScanner {
             loop {
                 if let Ok((x, y, width, height)) = rx1.recv() {
                     let image = screen.capture_area(x, y, width, height).unwrap();
-                    //TODO
+                    // TODO: Process image and send result
                     // tx2.send(image.to_vec()).unwrap();
                 }
             }
         });
 
         Self {
+            start: false,
             scanning: false,
             result: String::new(),
             tx: tx1,
@@ -91,12 +93,14 @@ impl QRScanner {
 impl eframe::App for QRScanner {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
-            if !self.scanning {
+            if !self.start {
                 if ui.button("Scan QR Code").clicked() {
-                    self.scanning = true;
+                    self.start = true;
+                    self.scanning = false;
                     self.result.clear();
                     self.start_pos = None;
                     self.end_pos = None;
+                    println!("Started scanning: {:?}", self.start);
                 }
             } else {
                 ui.label("Drag to select area");
@@ -134,8 +138,8 @@ fn main() -> eframe::Result {
     });
 
     eframe::run_native(
-        "Qr Scanner",
+        "QR Scanner",
         options,
-        Box::new(|_cc| Ok(Box::<QRScanner>::default())),
+        Box::new(|_cc| Ok(Box::new(QRScanner::default()))),
     )
 }
