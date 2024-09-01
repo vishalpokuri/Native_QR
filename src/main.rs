@@ -1,8 +1,9 @@
 use eframe::egui::{self};
-use image;
+use image::{self, DynamicImage, GrayImage, ImageBuffer, Luma};
 use rdev::{listen, Button, Event, EventType};
 use rqrr::PreparedImage;
 use screenshots::Screen;
+
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use webbrowser;
@@ -32,11 +33,16 @@ impl Default for QRScanner {
             let screen = Screen::from_point(0, 0).unwrap();
             loop {
                 if let Ok((x, y, width, height)) = rx1.recv() {
+                    //Getting coordinates
+
                     let imageresult = screen.capture_area(x, y, width, height).unwrap();
-                    println!("{:?}", imageresult);
-                    let imageresult = imageresult.to_vec();
-                    let decoded_data_resultant = decode_qr_code(imageresult);
-                    println!("{:?}", decoded_data_resultant.unwrap());
+                    imageresult
+                        .save(format!("target-2.png"))
+                        .unwrap_or_else(|er| println!("Unable to save file {:?}", er));
+                    let lumaresult = DynamicImage::ImageRgba8(imageresult).into_luma8();
+
+                    // let decoded_data_resultant = decode_qr_code(lumaresult);
+                    // println!("{:?}", decoded_data_resultant.unwrap());
                 }
             }
         });
@@ -139,7 +145,7 @@ fn main() -> eframe::Result {
         };
 
         if let Err(error) = listen(callback) {
-            println!("Error: {:?}", error)
+            println!("Error: {:?}", error);
         }
     });
 
@@ -150,18 +156,30 @@ fn main() -> eframe::Result {
     )
 }
 
-fn decode_qr_code(image: Vec<u8>) -> Option<String> {
-    let img = image::load_from_memory(&image).ok().unwrap().to_luma8();
-    let mut prepared_image = PreparedImage::prepare(img);
+//Problem with decode QR function TODO
+fn decode_qr_code(image: GrayImage) -> Option<String> {
+    let mut prepared_image = PreparedImage::prepare(image);
 
-    // Detect and decode QR codes
     let grids = prepared_image.detect_grids();
-
-    let (_meta, content) = grids[0].decode().unwrap();
-    if !content.is_empty() {
-        webbrowser::open(&content).unwrap();
-        return Some(content);
-    } else {
-        None
+    if let Some(grid) = grids.get(0) {
+        if let Ok((_meta, content)) = grid.decode() {
+            if !content.is_empty() {
+                return Some(content);
+            }
+        }
     }
+
+    None
 }
+
+// fn main() {
+//     let img = image::open("/home/viscanum853/QRscanner/test/data/solpgqr.png")
+//         .unwrap()
+//         .to_luma8();
+//     let mut img = rqrr::PreparedImage::prepare(img);
+//     let grids = img.detect_grids();
+//     let (meta, content) = grids[0].decode().unwrap();
+//     if !content.is_empty() {
+//         webbrowser::open(&content).unwrap();
+//     }
+// }
